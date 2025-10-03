@@ -1,139 +1,118 @@
 import streamlit as st
 import pandas as pd
 import requests
-import datetime
-from concurrent.futures import ThreadPoolExecutor
-import pytz
+from datetime import datetime, timezone, timedelta
 
 st.set_page_config(page_title="SHOWROOM イベント参加者戦闘力チェック", layout="wide")
-JST = pytz.timezone("Asia/Tokyo")
-HEADERS = {"User-Agent": "Mozilla/5.0"}
-ARCHIVE_URL = "https://mksoul-pro.com/showroom/file/sr-event-archive.csv"
 
-# --- キャッシュ付きAPI ---
-@st.cache_data(ttl=3600)
-def get_event_search():
-    """最新イベント一覧を取得"""
-    url = "https://www.showroom-live.com/api/event/search"
-    params = {"statuses": [1, 3, 4], "limit": 200}
-    res = requests.get(url, headers=HEADERS, params=params)
-    res.raise_for_status()
-    return res.json().get("events", [])
+# --- 定数定義 ---
+EVENT_SEARCH_API = "https://www.showroom-live.com/api/event/search"
+EVENT_BACKUP_URL = "https://mksoul-pro.com/showroom/file/sr-event-archive.csv"
 
-@st.cache_data(ttl=3600)
-def get_archive_events():
-    """バックアップCSV"""
+# --- JST変換関数 ---
+def ts_to_jst(ts):
     try:
-        df = pd.read_csv(ARCHIVE_URL)
-        return df.to_dict("records")
-    except:
-        return []
+        return datetime.fromtimestamp(int(ts), timezone(timedelta(hours=9)))
+    except Exception:
+        return None
 
-@st.cache_data(ttl=3600)
-def get_event_room_list(event_id):
-    """イベント参加者リスト"""
-    url = f"https://www.showroom-live.com/api/event/room_list?event_id={event_id}"
-    res = requests.get(url, headers=HEADERS, timeout=10)
-    res.raise_for_status()
-    data = res.json().get("list", [])
-    return data
+# --- イベントデータ取得関数 ---
+@st.cache_data(ttl=300)
+def fetch_event_data():
+    all_events = []
 
-@st.cache_data(ttl=3600)
-def get_room_profile(room_id):
-    """ルームプロフィール"""
-    url = f"https://www.showroom-live.com/api/room/profile?room_id={room_id}"
-    res = requests.get(url, headers=HEADERS, timeout=10)
-    res.raise_for_status()
-    return res.json()
+    # ① APIから取得
+    try:
+        res = requests.get(EVENT_SEARCH_API, timeout=10)
+        if res.status_code == 200:
+            api_data = res.json()
+            if isinstance(api_data, dict) and "events" in api_data:
+                all_events.extend(api_data["events"])
+    except Exception as e:
+        st.warning(f"イベントAPI取得に失敗しました: {e}")
 
-def get_room_event_history(room_id, events):
-    """特定ルームが出場していたイベントを検索"""
-    history = []
-    for ev in events:
-        url_key = ev.get("event_url_key")
-        event_id = ev.get("event_id")
-        if not url_key or not event_id:
-            continue
-        found = False
-        for page in range(1, 6):
-            rank_url = f"https://www.showroom-live.com/api/event/{url_key}/ranking?page={page}"
-            try:
-                r = requests.get(rank_url, headers=HEADERS, timeout=10)
-                if r.status_code != 200:
-                    break
-                ranking_list = r.json().get("ranking", [])
-                for item in ranking_list:
-                    if str(item.get("room_id")) == str(room_id):
-                        # /room_listで詳細を取得
-                        room_list = get_event_room_list(event_id)
-                        for rl in room_list:
-                            if str(rl.get("room_id")) == str(room_id):
-                                history.append({
-                                    "event_name": ev.get("event_name"),
-                                    "url": f"https://www.showroom-live.com/event/{url_key}",
-                                    "start": ev.get("start_at"),
-                                    "end": ev.get("end_at"),
-                                    "rank": rl.get("rank", "圏外"),
-                                    "point": rl.get("point", 0),
-                                    "quest_level": rl.get("quest_level", "-")
-                                })
-                                found = True
-                                break
-                    if found:
-                        break
-            except Exception:
-                continue
-    return history
+    # ② バックアップCSVも統合
+    try:
+        backup_df = pd.read_csv(EVENT_BACKUP_URL)
+        backup_df = backup_df.rename(columns=str.lower)
+        all_events.extend(backup_df.to_dict(orient="records"))
+    except Exception as e:
+        st.warning(f"バックアップ読み込みに失敗しました: {e}")
 
-# --- UI ---
+    return pd.DataFrame(all_events)
+
+# --- メイン処理 ---
 st.title("🎯 SHOWROOM イベント参加者戦闘力チェック")
 
-# イベント一覧取得
-with st.spinner("イベント一覧を取得中..."):
-    latest = get_event_search()
-    archive = get_archive_events()
+event_df = fetch_event_data()
 
-# 最新 + バックアップ統合
-event_df = pd.DataFrame(latest)
-if archive:
-    archive_df = pd.DataFrame(archive)
-    event_df = pd.concat([event_df, archive_df], ignore_index=True).drop_duplicates(subset=["event_id"], keep="first")
+if event_df.empty:
+    st.error("イベント情報を取得できませんでした。")
+    st.stop()
 
-event_df = event_df[event_df["start_at"] >= "2023-09-01"]
-event_df = event_df.sort_values("start_at", ascending=False)
+# --- UnixタイムをJST変換 ---
+if "started_at" in event_df.columns:
+    event_df["start_dt"] = event_df["started_at"].apply(ts_to_jst)
+if "ended_at" in event_df.columns:
+    event_df["end_dt"] = event_df["ended_at"].apply(ts_to_jst)
 
-selected_event = st.selectbox(
-    "イベントを選択してください：",
-    options=[f"{row['event_name']}（{row['start_at']}〜{row['end_at']}）" for _, row in event_df.iterrows()]
-)
+# --- 日付フィルタ（2023/09/01以降） ---
+cutoff = datetime(2023, 9, 1, tzinfo=timezone(timedelta(hours=9)))
+if "start_dt" in event_df.columns:
+    event_df = event_df[event_df["start_dt"] >= cutoff]
+
+# --- 表示整形 ---
+event_df = event_df.sort_values("start_dt", ascending=False)
+event_df["event_link"] = event_df.apply(lambda x: f"[🔗 {x.get('event_name', '不明')}]('https://www.showroom-live.com/event/{x.get('event_url_key', '')}')", axis=1)
+event_df["期間"] = event_df.apply(lambda x: f"{x['start_dt'].strftime('%Y/%m/%d %H:%M')}〜{x['end_dt'].strftime('%Y/%m/%d %H:%M')}" if pd.notnull(x.get('start_dt')) and pd.notnull(x.get('end_dt')) else "-", axis=1)
+
+# --- 一覧表示 ---
+columns_to_show = ["event_link", "event_block_label", "期間", "event_id"]
+st.dataframe(event_df[columns_to_show].rename(columns={
+    "event_link": "イベント名",
+    "event_block_label": "対象",
+    "event_id": "ID"
+}), use_container_width=True)
+
+# --- イベント選択 ---
+event_options = event_df[["event_name", "event_id", "event_url_key"]].dropna()
+selected_event = st.selectbox("分析するイベントを選択", options=event_options["event_name"].tolist())
 
 if selected_event:
-    event_row = event_df.iloc[[i for i, x in enumerate(
-        [f"{r['event_name']}（{r['start_at']}〜{r['end_at']}）" for _, r in event_df.iterrows()]
-    ) if x == selected_event][0]]
+    selected_row = event_options[event_options["event_name"] == selected_event].iloc[0]
+    event_id = selected_row["event_id"]
+    event_url_key = selected_row["event_url_key"]
 
-    event_id = int(event_row["event_id"])
-    event_url_key = event_row["event_url_key"]
+    st.info(f"選択中イベント: {selected_event}\nURL: https://www.showroom-live.com/event/{event_url_key}")
 
-    st.subheader(f"イベント参加者一覧（Event ID: {event_id}）")
+    # --- 参加ルームリストを取得 ---
+    room_api = f"https://www.showroom-live.com/api/event/room_list?event_id={event_id}"
+    try:
+        res = requests.get(room_api, timeout=10)
+        if res.status_code == 200:
+            data = res.json()
+            if isinstance(data, dict) and "list" in data:
+                rooms = data["list"]
 
-    room_list = get_event_room_list(event_id)
-    st.write(f"参加ルーム数：{len(room_list)}")
+                # --- 最大10ルームを選出（SHOWランク > レベル > フォロワー数） ---
+                df_rooms = pd.DataFrame(rooms)
+                df_rooms = df_rooms.sort_values(by=["show_rank_subdivided", "room_level", "follower_num"], ascending=[False, False, False]).head(10)
 
-    if room_list:
-        top_rooms = sorted(room_list, key=lambda x: (-int(x.get("show_rank_subdivided", 0)),
-                                                     -int(x.get("room_level", 0)),
-                                                     -int(x.get("follower_num", 0))))[:10]
-        for room in top_rooms:
-            room_id = room["room_id"]
-            prof = get_room_profile(room_id)
-            link = f"https://www.showroom-live.com/room/profile?room_id={room_id}"
-            st.markdown(f"#### [{prof.get('room_name')}]({link})")
-            st.write(f"SHOWランク: {prof.get('show_rank_subdivided')}, ルームLv: {prof.get('room_level')}, フォロワー: {prof.get('follower_num')}")
-            st.write("過去イベント履歴を検索中...")
-            history = get_room_event_history(room_id, event_df.to_dict("records"))
-            if history:
-                hist_df = pd.DataFrame(history)
-                st.dataframe(hist_df, hide_index=True)
+                df_rooms["room_link"] = df_rooms.apply(lambda x: f"[🔗 {x.get('room_name', '不明')}]('https://www.showroom-live.com/room/profile?room_id={x.get('room_id', '')}')", axis=1)
+
+                st.subheader("🏠 参加ルーム情報（上位10ルーム）")
+                st.dataframe(df_rooms[["room_link", "room_level", "show_rank_subdivided", "follower_num", "live_continuous_days", "room_id"]].rename(columns={
+                    "room_link": "ルーム名",
+                    "room_level": "ルームレベル",
+                    "show_rank_subdivided": "SHOWランク",
+                    "follower_num": "フォロワー数",
+                    "live_continuous_days": "毎日配信継続日数",
+                    "room_id": "ルームID"
+                }), use_container_width=True)
+
             else:
-                st.info("過去イベント履歴が見つかりません。")
+                st.warning("ルームリストデータが見つかりませんでした。")
+        else:
+            st.error(f"ルームリストの取得に失敗しました（status={res.status_code}）。")
+    except Exception as e:
+        st.error(f"ルームリスト取得でエラーが発生しました: {e}")
