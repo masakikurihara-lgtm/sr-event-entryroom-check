@@ -338,63 +338,95 @@ def _show_rank_score(rank_str):
 
 @st.cache_data(ttl=120)
 def get_event_participants(event, limit=10):
-    """
-    開催予定・開催中どちらでも共通の方法で上位10ルームを抽出し、詳細を返す。
-    """
     event_id = event.get("event_id")
-    event_key = event.get("event_url_key")
-    if not event_id or not event_key:
+    if not event_id:
         return []
 
-    participants = []
-    page = 1
-
-    # --- ① 全参加ルーム(room_list?p=x)をページングで取得 ---
+    # --- ① room_list?p=x で全参加者を取得 ---
+    rooms = []
+    p = 1
     while True:
-        url = f"https://www.showroom-live.com/api/event/room_list?event_id={event_id}&p={page}"
+        url = f"https://www.showroom-live.com/api/event/room_list?event_id={event_id}&p={p}"
         try:
             res = requests.get(url, headers=HEADERS, timeout=10)
             if res.status_code != 200:
                 break
             data = res.json()
-            rooms = data.get("list", [])
-            if not rooms:
+            page_rooms = data.get("list", []) or data.get("data", [])
+            if not page_rooms:
                 break
-            participants.extend(rooms)
-            page += 1
-            # 念のため最大ページ制限（安全弁）
-            if page > 50:
+            rooms.extend(page_rooms)
+            # next_page が null/None の場合は終端
+            if not data.get("next_page"):
                 break
-            time.sleep(0.05)
+            p += 1
+            # 安全弁
+            if p > 200:
+                break
+            time.sleep(0.03)
         except Exception:
             break
+
+    if not rooms:
+        return []
+
+    # --- room_id をキーにしたマップ（rank/point 等はここにある） ---
+    room_info_map = {}
+    for r in rooms:
+        rid = r.get("room_id") or r.get("roomId") or r.get("id")
+        if rid is None:
+            continue
+        rid = str(rid)
+        room_info_map[rid] = r
+
+    # --- ② 参加者候補を作成（room_list の値優先、足りない値は profile で補完） ---
+    participants = []
+    for rid, r in room_info_map.items():
+        # room_list にある値を先に使う
+        room_name = r.get("room_name") or r.get("name") or ""
+        # room_list は 'level' または 'level' に相当するフィールドを持っていることが多い
+        room_level = r.get("level") or r.get("room_level") or 0
+        follower = r.get("follower_num") or r.get("follower_count") or 0
+        show_rank = r.get("show_rank_subdivided") or r.get("show_rank") or ""
+
+        # 足りない情報だけ profile で補完（API呼び出しは必要最小限に）
+        if show_rank == "" or room_level in (None, "") or follower in (None, ""):
+            profile = get_room_profile_api(rid)
+            if profile:
+                show_rank = show_rank or profile.get("show_rank_subdivided") or profile.get("show_rank") or ""
+                room_level = room_level or profile.get("room_level") or profile.get("level") or 0
+                follower = follower or profile.get("follower_num") or profile.get("follower_count") or 0
+                # room_name も profile で補える場合がある
+                if not room_name:
+                    room_name = profile.get("room_name") or profile.get("name") or room_name
+
+        # 型整形
+        try:
+            room_level = int(room_level)
+        except Exception:
+            room_level = 0
+        try:
+            follower = int(follower)
+        except Exception:
+            follower = 0
+
+        participants.append({
+            "room_id": rid,
+            "room_name": room_name,
+            "room_level": room_level,
+            "show_rank_subdivided": str(show_rank).strip().upper(),
+            "follower_num": follower,
+            # 保存しておく（rank/point は room_info_map にある）
+            "rank": r.get("rank") or r.get("position"),
+            "point": r.get("point") or r.get("event_point") or r.get("total_point") or 0
+        })
+        # 必要なら sleep（rate limit 配慮） -- ただし profile 呼び出しは上でまとめているのでここは軽く
+        # time.sleep(0.01)
 
     if not participants:
         return []
 
-    # --- ② 各room_idのプロフィール情報を取得 ---
-    enriched = []
-    for r in participants:
-        rid = str(r.get("room_id"))
-        if not rid:
-            continue
-        profile = get_room_profile_api(rid)
-        if not profile:
-            continue
-        enriched.append({
-            "room_id": rid,
-            "room_name": r.get("room_name", ""),
-            "room_level": int(profile.get("room_level", 0)),
-            "show_rank_subdivided": profile.get("show_rank_subdivided", ""),
-            "follower_num": int(profile.get("follower_num", 0)),
-            "live_continuous_days": int(profile.get("live_continuous_days", 0)),
-        })
-        time.sleep(0.05)
-
-    if not enriched:
-        return []
-
-    # --- ③ SHOWランク → ルームレベル → フォロワー数 でソート ---
+    # --- ③ SHOWランクを正規化してスコア化しソート ---
     rank_order = [
         "SS-5","SS-4","SS-3","SS-2","SS-1",
         "S-5","S-4","S-3","S-2","S-1",
@@ -402,42 +434,33 @@ def get_event_participants(event, limit=10):
         "B-5","B-4","B-3","B-2","B-1",
         "C-10","C-9","C-8","C-7","C-6","C-5","C-4","C-3","C-2","C-1"
     ]
-    rank_score = {rank: len(rank_order) - i for i, rank in enumerate(rank_order)}
+    # 高いものに高スコアを与える
+    rank_score = {r: len(rank_order) - i for i, r in enumerate(rank_order)}
 
-    def sort_key(x):
-        s = rank_score.get(x.get("show_rank_subdivided", ""), 0)
-        return (s, x.get("room_level", 0), x.get("follower_num", 0))
+    def rank_to_score(rank_str):
+        if not rank_str:
+            return -1
+        s = str(rank_str).upper().strip()
+        # 余分な空白などを除去
+        s = s.replace(" ", "")
+        return rank_score.get(s, -1)
 
-    top10 = sorted(enriched, key=sort_key, reverse=True)[:limit]
+    participants_sorted = sorted(
+        participants,
+        key=lambda x: (rank_to_score(x.get("show_rank_subdivided", "")),
+                       x.get("room_level", 0),
+                       x.get("follower_num", 0)),
+        reverse=True
+    )
 
-    # --- ④ 上位10件の順位・ポイント情報を補完 ---
+    top10 = participants_sorted[:limit]
+
+    # --- ④ point を整数化（表示用）して返却 ---
     for t in top10:
-        rid = t["room_id"]
-        found = None
-        page = 1
-        while True:
-            url = f"https://www.showroom-live.com/api/event/room_list?event_id={event_id}&p={page}"
-            res = requests.get(url, headers=HEADERS, timeout=10)
-            if res.status_code != 200:
-                break
-            data = res.json()
-            rooms = data.get("list", [])
-            if not rooms:
-                break
-            for r in rooms:
-                if str(r.get("room_id")) == rid:
-                    found = r
-                    break
-            if found or page > 50:
-                break
-            page += 1
-            time.sleep(0.05)
-        if found:
-            t["rank"] = found.get("rank")
-            t["point"] = found.get("point")
-        else:
-            t["rank"] = None
-            t["point"] = None
+        try:
+            t["point"] = int(float(t.get("point") or 0))
+        except Exception:
+            t["point"] = t.get("point") or 0
 
     return top10
 
