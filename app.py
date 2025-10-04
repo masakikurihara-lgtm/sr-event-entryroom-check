@@ -336,105 +336,71 @@ def _show_rank_score(rank_str):
     return base * 100 - num
 
 
-@st.cache_data(ttl=120)
+import concurrent.futures
+
 def get_event_participants(event, limit=10):
-    """
-    イベント参加者の情報を取得（開催予定・開催中対応）
-    1. room_list?p=x で全参加者(room_id)を取得
-    2. profile?room_id= で各ルーム情報（SHOWランク・連続配信日数など）取得
-    3. 上位10ルームを (SHOWランク > ルームレベル > フォロワー数) の順で抽出
-    """
     event_id = event.get("event_id")
     if not event_id:
         return []
 
-    # --- ① room_list?p=x で全参加者を収集 ---
-    rooms = []
-    p = 1
+    # --- ① room_list?p= の全ページ探索（全room_id収集） ---
+    all_entries = []
+    page = 1
     while True:
-        url = f"https://www.showroom-live.com/api/event/room_list?event_id={event_id}&p={p}"
+        url = f"https://www.showroom-live.com/api/event/room_list?event_id={event_id}&p={page}"
         try:
             res = requests.get(url, headers=HEADERS, timeout=10)
             if res.status_code != 200:
                 break
             data = res.json()
-            page_rooms = data.get("list", []) or data.get("data", [])
-            if not page_rooms:
+            page_entries = data.get("list", [])
+            if not page_entries:
                 break
-            rooms.extend(page_rooms)
-            if not data.get("next_page"):
-                break
-            p += 1
-            if p > 200:  # 安全弁
-                break
-            time.sleep(0.03)
+            all_entries.extend(page_entries)
+            page += 1
+            time.sleep(0.05)
         except Exception:
             break
 
-    if not rooms:
+    if not all_entries:
         return []
 
-    # --- ② 各ルームのプロフィールを取得（SHOWランク / 連続配信日数） ---
+    # --- ② 並列で profile 情報を取得 ---
+    def fetch_profile(rid):
+        """個別room_idのプロフィール取得（安全ラップ）"""
+        url = f"https://www.showroom-live.com/api/room/profile?room_id={rid}"
+        try:
+            r = requests.get(url, headers=HEADERS, timeout=6)
+            if r.status_code == 200:
+                return r.json()
+        except Exception:
+            return {}
+        return {}
+
     participants = []
-    for r in rooms:
-        rid = str(r.get("room_id") or "")
-        if not rid:
-            continue
+    room_ids = [item.get("room_id") for item in all_entries if item.get("room_id")]
 
-        # プロフィールAPIから取得
-        profile_url = f"https://www.showroom-live.com/api/room/profile?room_id={rid}"
-        try:
-            prof_res = requests.get(profile_url, headers=HEADERS, timeout=8)
-            if prof_res.status_code != 200:
+    # 並列取得：最大10スレッドで同時にprofile呼び出し
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        future_to_id = {executor.submit(fetch_profile, rid): rid for rid in room_ids}
+        for future in concurrent.futures.as_completed(future_to_id):
+            rid = future_to_id[future]
+            try:
+                profile = future.result()
+                if not profile:
+                    continue
+                participants.append({
+                    "room_id": str(rid),
+                    "room_name": profile.get("room_name") or f"room_{rid}",
+                    "room_level": int(profile.get("room_level", 0)),
+                    "show_rank_subdivided": profile.get("show_rank_subdivided") or "",
+                    "follower_num": int(profile.get("follower_num", 0)),
+                    "live_continuous_days": int(profile.get("live_continuous_days", 0)),
+                })
+            except Exception:
                 continue
-            prof = prof_res.json()
-        except Exception:
-            continue
 
-        # それぞれの項目を抽出
-        room_name = prof.get("room_name") or r.get("room_name") or ""
-        room_level = prof.get("room_level") or r.get("level") or 0
-        show_rank = prof.get("show_rank_subdivided") or ""
-        follower = prof.get("follower_num") or r.get("follower_num") or 0
-        live_days = prof.get("live_continuous_days") or 0
-        point = r.get("point") or r.get("event_point") or 0
-        rank = r.get("rank") or r.get("position") or None
-
-        # 型整形
-        try:
-            room_level = int(room_level)
-        except Exception:
-            room_level = 0
-        try:
-            follower = int(follower)
-        except Exception:
-            follower = 0
-        try:
-            live_days = int(live_days)
-        except Exception:
-            live_days = 0
-        try:
-            point = int(float(point or 0))
-        except Exception:
-            point = 0
-
-        participants.append({
-            "room_id": rid,
-            "room_name": room_name,
-            "room_level": room_level,
-            "show_rank_subdivided": str(show_rank).strip().upper(),
-            "follower_num": follower,
-            "live_continuous_days": live_days,
-            "rank": rank,
-            "point": point
-        })
-
-        time.sleep(0.05)  # レートリミット対策
-
-    if not participants:
-        return []
-
-    # --- ③ SHOWランクの順位マッピング（上位ほど高スコア） ---
+    # --- ③ SHOWランク > ルームレベル > フォロワー数 でソート ---
     rank_order = [
         "SS-5","SS-4","SS-3","SS-2","SS-1",
         "S-5","S-4","S-3","S-2","S-1",
@@ -442,25 +408,36 @@ def get_event_participants(event, limit=10):
         "B-5","B-4","B-3","B-2","B-1",
         "C-10","C-9","C-8","C-7","C-6","C-5","C-4","C-3","C-2","C-1"
     ]
-    rank_score = {r: len(rank_order) - i for i, r in enumerate(rank_order)}
+    rank_score = {rank: len(rank_order) - i for i, rank in enumerate(rank_order)}
 
-    def to_score(rank_str):
-        s = str(rank_str).upper().strip().replace(" ", "")
-        return rank_score.get(s, -1)
+    def sort_key(x):
+        s = rank_score.get(x.get("show_rank_subdivided", ""), 0)
+        return (s, x.get("room_level", 0), x.get("follower_num", 0))
 
-    # --- ④ ソート（SHOWランク > ルームレベル > フォロワー数） ---
-    participants_sorted = sorted(
-        participants,
-        key=lambda x: (
-            to_score(x.get("show_rank_subdivided")),
-            x.get("room_level", 0),
-            x.get("follower_num", 0)
-        ),
-        reverse=True
-    )
+    participants_sorted = sorted(participants, key=sort_key, reverse=True)
 
-    # 上位10件のみ返す
-    return participants_sorted[:limit]
+    # 上位10件を抽出
+    top10 = participants_sorted[:limit]
+
+    # --- ④ rank/point補完 ---
+    room_list_data = all_entries  # すでに全件room_listで取っている
+    rank_map = {}
+    for r in room_list_data:
+        rid = str(r.get("room_id"))
+        if not rid:
+            continue
+        rank_map[rid] = {
+            "rank": r.get("rank") or r.get("position"),
+            "point": r.get("point") or r.get("event_point") or r.get("total_point")
+        }
+
+    for p in top10:
+        rid = p["room_id"]
+        rp = rank_map.get(rid, {})
+        p["rank"] = rp.get("rank")
+        p["point"] = rp.get("point")
+
+    return top10
 
 
 
