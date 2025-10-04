@@ -7,7 +7,6 @@ import pandas as pd
 import io
 import re
 import ftplib  # ✅ FTPアップロード機能用
-import pandas as _pd
 
 # 日本時間(JST)のタイムゾーンを設定
 JST = pytz.timezone('Asia/Tokyo')
