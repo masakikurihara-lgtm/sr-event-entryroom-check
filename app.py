@@ -349,11 +349,15 @@ def get_event_participants(event, limit=10):
     if not event_id:
         return []
 
-    # --- ① ranking APIで全参加者を探索 ---
+    # --- ① ranking APIで全参加者を探索（正: event_url_key 使用） ---
     all_entries = []
     page = 1
+    event_key = event.get("event_url_key")
+    if not event_key:
+        return []
+
     while True:
-        url = f"https://www.showroom-live.com/api/event/{event_id}/ranking?page={page}"
+        url = f"https://www.showroom-live.com/api/event/{event_key}/ranking?page={page}"
         try:
             res = requests.get(url, headers=HEADERS, timeout=10)
             if res.status_code != 200:
