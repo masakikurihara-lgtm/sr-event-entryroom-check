@@ -975,14 +975,39 @@ def main():
                                 participants = get_event_participants(event, limit=10)
                                 if participants:
                                     import pandas as _pd
+
+                                    # ✅ SHOWランク優先順のスコアマップ（非表示用）
+                                    rank_order = [
+                                        "SS-5","SS-4","SS-3","SS-2","SS-1",
+                                        "S-5","S-4","S-3","S-2","S-1",
+                                        "A-5","A-4","A-3","A-2","A-1",
+                                        "B-5","B-4","B-3","B-2","B-1",
+                                        "C-10","C-9","C-8","C-7","C-6","C-5","C-4","C-3","C-2","C-1"
+                                    ]
+                                    rank_score = {rank: i for i, rank in enumerate(rank_order[::-1])}  # 下が低い順、上が高い順
+
                                     dfp = _pd.DataFrame(participants)
+
+                                    # 欠けている列があっても動作するように補完
                                     cols = [
-                                        'room_name','room_level','show_rank_subdivided',
-                                        'follower_num','live_continuous_days','room_id','rank','point'
+                                        'room_name', 'room_level', 'show_rank_subdivided',
+                                        'follower_num', 'live_continuous_days', 'room_id', 'rank', 'point'
                                     ]
                                     for c in cols:
                                         if c not in dfp.columns:
                                             dfp[c] = ""
+
+                                    # ✅ SHOWランクスコアを内部カラムに追加（表示しない）
+                                    dfp['_rank_score'] = dfp['show_rank_subdivided'].map(rank_score).fillna(-1)
+
+                                    # ✅ ソート: SHOWランク（スコア）降順 → ルームレベル降順 → フォロワー数降順
+                                    dfp.sort_values(
+                                        by=['_rank_score', 'room_level', 'follower_num'],
+                                        ascending=[False, False, False],
+                                        inplace=True
+                                    )
+
+                                    # 表示用に列整形
                                     dfp_display = dfp[cols].copy()
                                     dfp_display.rename(columns={
                                         'room_name': 'ルーム名',
@@ -995,21 +1020,39 @@ def main():
                                         'point': 'ポイント'
                                     }, inplace=True)
 
+                                    # ルーム名をリンク化して HTML 表示
                                     def _make_link(row):
                                         rid = row['ルームID']
                                         name = row['ルーム名'] or f"room_{rid}"
                                         return f'<a href="https://www.showroom-live.com/room/profile?room_id={rid}" target="_blank">{name}</a>'
                                     dfp_display['ルーム名'] = dfp_display.apply(_make_link, axis=1)
 
+                                    # ✅ HTMLテーブル化（見出しデザイン改修）
+                                    html_table = "<table style='width:100%; border-collapse:collapse;'>"
+                                    html_table += (
+                                        "<thead style='background-color:#f3f4f6;'>"
+                                        "<tr>"
+                                    )
+                                    for col in dfp_display.columns:
+                                        html_table += f"<th style='padding:6px; border-bottom:1px solid #ccc; text-align:center;'>{col}</th>"
+                                    html_table += "</tr></thead><tbody>"
+
+                                    for _, row in dfp_display.iterrows():
+                                        html_table += "<tr>"
+                                        for val in row:
+                                            html_table += f"<td style='padding:6px; border-bottom:1px solid #eee; text-align:center;'>{val}</td>"
+                                        html_table += "</tr>"
+                                    html_table += "</tbody></table>"
+
                                     with st.expander("参加者一覧（最大10件）", expanded=True):
-                                        st.write(dfp_display.to_html(escape=False, index=False), unsafe_allow_html=True)
+                                        st.markdown(html_table, unsafe_allow_html=True)
                                 else:
                                     st.info("参加者情報が取得できませんでした。")
                             except Exception as e:
                                 st.error(f"参加者情報の取得中にエラーが発生しました: {e}")
                 else:
                     # 終了済みイベントは非表示 or 非活性メッセージを表示
-                    st.markdown('<div class="event-info"><em>（イベント終了済のため参加者情報は非表示）</em></div>', unsafe_allow_html=True)
+                    #st.markdown('<div class="event-info"><em>（イベント終了済のため参加者情報は非表示）</em></div>', unsafe_allow_html=True)
                 # --- ▲ 追加ここまで ▲ ---
 
             st.markdown("---")
