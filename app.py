@@ -416,20 +416,6 @@ def get_event_participants(event, limit=10):
 # --- ▲ 追加ここまで ▲ ---
 
 
-def _fmt_int_for_display(v):
-    # 空文字・NaN は空で表示
-    try:
-        if v is None or (isinstance(v, str) and v.strip() == ""):
-            return ""
-        # 数値文字列や float を受けて整数へ
-        num = float(v)
-        # 小数点以下切捨てで整数化（ここは int() により切り捨て）
-        return str(int(num))
-    except Exception:
-        # 数値変換できない場合は元をそのまま文字列化
-        return str(v)
-
-
 # --- UI表示関数 ---
 
 def display_event_info(event):
@@ -511,6 +497,25 @@ def display_event_info(event):
                                 'rank': '順位',
                                 'point': 'ポイント'
                             }, inplace=True)
+
+                            def _fmt_int_for_display(v):
+                                # 空文字・NaN は空で表示
+                                try:
+                                    if v is None or (isinstance(v, str) and v.strip() == ""):
+                                        return ""
+                                    # 数値文字列や float を受けて整数へ
+                                    num = float(v)
+                                    # 小数点以下切捨てで整数化（ここは int() により切り捨て）
+                                    return str(int(num))
+                                except Exception:
+                                    # 数値変換できない場合は元をそのまま文字列化
+                                    return str(v)
+
+                            # 期待する列名（日本語化後の列名を使う）
+                            numeric_display_cols = ['ルームレベル', 'フォロワー数', '連続配信日数', '順位', 'ポイント']
+                            for col in numeric_display_cols:
+                                if col in dfp_display.columns:
+                                    dfp_display[col] = dfp_display[col].apply(_fmt_int_for_display)
 
                             # ルーム名をリンクにしてテーブル表示（HTMLテーブルを利用）
                             def _make_link(row):
