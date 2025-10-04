@@ -978,6 +978,11 @@ def main():
                     f'<div class="event-info"><strong>参加ルーム数:</strong> {total_entries}</div>',
                     unsafe_allow_html=True
                 )
+                
+                
+                                # ▼ デバッグ: ステータスの値を表示 ▼
+                st.caption(f"デバッグ: event_id={event['event_id']}, status={event.get('status')}, event_status={event.get('event_status')}, public_status={event.get('public_status')}")
+
 
                 # ▼▼▼ ここから追加 ▼▼▼
                 # ステータスが1（開催中）または3（開催予定）の場合のみ、参加者情報を表示
