@@ -949,6 +949,7 @@ def main():
                     unsafe_allow_html=True
                 )
 
+                total_entries = get_total_entries(event['event_id'])
                 st.markdown(
                     f'<div class="event-info"><strong>参加ルーム数:</strong> {total_entries}</div>',
                     unsafe_allow_html=True
