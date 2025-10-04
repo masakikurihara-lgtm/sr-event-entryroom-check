@@ -279,8 +279,6 @@ def get_total_entries(event_id):
 
 
 # --- ▼ ここから追加: 参加者情報取得ヘルパー（get_total_entries の直後に挿入） ▼ ---
-import re
-
 @st.cache_data(ttl=60)
 def get_event_room_list_api(event_id):
     """ /api/event/room_list?event_id= を叩いて参加ルーム一覧（主に上位30）を取得する """
