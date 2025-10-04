@@ -7,6 +7,7 @@ import pandas as pd
 import io
 import re
 import ftplib  # ✅ FTPアップロード機能用
+import pandas as _pd
 
 # 日本時間(JST)のタイムゾーンを設定
 JST = pytz.timezone('Asia/Tokyo')
@@ -420,7 +421,7 @@ def _fmt_int_for_display(v):
     # 空文字・NaN は空で表示
     try:
         if v is None or (isinstance(v, str) and v.strip() == ""):
-            return f"{int(num):,}"
+            return ""
         # 数値文字列や float を受けて整数へ
         num = float(v)
         # 小数点以下切捨てで整数化（ここは int() により切り捨て）
