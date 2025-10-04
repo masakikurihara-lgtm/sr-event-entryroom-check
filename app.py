@@ -1051,6 +1051,25 @@ def main():
                                         return f'<a href="https://www.showroom-live.com/room/profile?room_id={rid}" target="_blank">{name}</a>'
                                     dfp_display['ルーム名'] = dfp_display.apply(_make_link, axis=1)
 
+                                    # --- ▼ 数値フォーマット関数の修正版（整数・カンマ区切り表示） ▼ ---
+                                    def _fmt_int_for_display(v):
+                                        try:
+                                            if v is None or (isinstance(v, str) and v.strip() == ""):
+                                                return ""
+                                            num = float(v)
+                                            if num.is_integer():
+                                                return f"{int(num):,}"
+                                            else:
+                                                return f"{num:,.0f}"
+                                        except Exception:
+                                            return str(v)
+
+                                    # ✅ 表示対象列に適用
+                                    for col in ['ルームレベル', 'フォロワー数', '連続配信日数', '順位', 'ポイント']:
+                                        if col in dfp_display.columns:
+                                            dfp_display[col] = dfp_display[col].apply(_fmt_int_for_display)
+                                    # --- ▲ 修正版ここまで ▲ ---
+
                                     # ✅ HTMLテーブル化（見出しデザイン改修）
                                     html_table = "<table style='width:100%; border-collapse:collapse;'>"
                                     html_table += (
