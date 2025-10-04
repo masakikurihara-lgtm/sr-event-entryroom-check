@@ -498,24 +498,30 @@ def display_event_info(event):
                                 'point': 'ポイント'
                             }, inplace=True)
 
+                            # --- ▼ 数値フォーマット関数の修正版（整数・カンマ区切り表示） ▼ ---
                             def _fmt_int_for_display(v):
-                                # 空文字・NaN は空で表示
                                 try:
-                                    if v is None or (isinstance(v, str) and v.strip() == ""):
+                                    # Noneや空文字は空表示
+                                    if v is None:
                                         return ""
-                                    # 数値文字列や float を受けて整数へ
+                                    if isinstance(v, str):
+                                        v = v.strip()
+                                        if v == "":
+                                            return ""
+                                    # 数値変換を試みる
                                     num = float(v)
-                                    # 小数点以下切捨てで整数化（ここは int() により切り捨て）
-                                    return str(int(num))
+                                    # 小数点以下を切り捨てた整数＋カンマ区切り表示
+                                    return f"{int(num):,}"
                                 except Exception:
-                                    # 数値変換できない場合は元をそのまま文字列化
+                                    # 数値変換できない場合はそのまま文字列化
                                     return str(v)
 
-                            # 期待する列名（日本語化後の列名を使う）
+                            # ✅ 表示対象列に適用
                             numeric_display_cols = ['ルームレベル', 'フォロワー数', '連続配信日数', '順位', 'ポイント']
                             for col in numeric_display_cols:
                                 if col in dfp_display.columns:
                                     dfp_display[col] = dfp_display[col].apply(_fmt_int_for_display)
+                            # --- ▲ 修正版ここまで ▲ ---
 
                             # ルーム名をリンクにしてテーブル表示（HTMLテーブルを利用）
                             def _make_link(row):
