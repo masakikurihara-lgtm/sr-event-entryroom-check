@@ -1053,6 +1053,7 @@ def main():
                 else:
                     # 終了済みイベントは非表示 or 非活性メッセージを表示
                     #st.markdown('<div class="event-info"><em>（イベント終了済のため参加者情報は非表示）</em></div>', unsafe_allow_html=True)
+                    st.markdown('', unsafe_allow_html=True)
                 # --- ▲ 追加ここまで ▲ ---
 
             st.markdown("---")
