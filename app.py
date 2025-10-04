@@ -444,27 +444,75 @@ def display_event_info(event):
         st.write(f"**参加ルーム数:** {total_entries}")
         
         # --- ▼ ここから追加: 参加者情報ボタン（開催中 / 開催予定 の場合のみ表示） ▼ ---
-        # 現在時刻で開催中 or 開催予定を判定（日本時間）
-        now_ts = int(datetime.now(JST).timestamp())
-        started_ts = int(event.get('started_at') or 0)
-        ended_ts = int(event.get('ended_at') or 0)
-        is_ongoing = (started_ts <= now_ts <= ended_ts)
-        is_upcoming = (now_ts < started_ts)
+        # --- ▼ 参加者情報ボタン（優先: status フィールド、無ければ時刻判定でフォールバック） ▼ ---
+        show_button = False
 
-        # 「開催中 / 開催予定」の場合のみボタンを出す（仕様どおり）
-        if is_ongoing or is_upcoming:
+        # (1) まず API の status 系フィールドを優先して判定する
+        status_val = None
+        for status_key in ("status", "event_status", "public_status"):
+            if status_key in event:
+                status_val = event.get(status_key)
+                break
+
+        try:
+            if status_val is not None:
+                # "1" や 1.0 のような型ゆれに対応
+                try:
+                    status_int = int(float(status_val))
+                except Exception:
+                    status_int = None
+                # 1=開催中, 3=開催予定 の想定
+                if status_int in (1, 3):
+                    show_button = True
+            else:
+                # (2) status フィールドが無ければ時刻で判定（従来ロジックのフォールバック）
+                now_ts = int(datetime.now(JST).timestamp())
+                started_raw = event.get("started_at") or 0
+                ended_raw = event.get("ended_at") or 0
+
+                # 安全に int に変換（文字列や浮動小数点にも対応）
+                try:
+                    started_ts = int(float(started_raw)) if started_raw else 0
+                except Exception:
+                    started_ts = 0
+                try:
+                    ended_ts = int(float(ended_raw)) if ended_raw else 0
+                except Exception:
+                    ended_ts = 0
+
+                # ミリ秒（13桁）で入っている可能性を考慮
+                if started_ts > 20000000000:
+                    started_ts = started_ts // 1000
+                if ended_ts > 20000000000:
+                    ended_ts = ended_ts // 1000
+
+                # 開催中 or 開催前（予定）の場合はボタンを表示
+                if (started_ts <= now_ts <= ended_ts) or (now_ts < started_ts):
+                    show_button = True
+        except Exception as e:
+            # 判定失敗しても致命的にしない（表示しない方向）
+            st.warning(f"参加者ボタン表示判定で例外が発生しました: {e}")
+            show_button = False
+
+        # ボタン表示（API status が 1 または 3 のときは必ずここで show_button True になる設計）
+        if show_button:
             btn_key = f"show_participants_{event.get('event_id')}"
             if st.button("参加者情報を表示", key=btn_key):
                 with st.spinner("参加者情報を取得中...（上位30→プロフィール補完を行います）"):
                     try:
                         participants = get_event_participants(event, limit=10)
                         if participants:
-                            # DataFrame 化して列名を日本語化して表示（ルーム名はリンク付きで表示）
                             import pandas as _pd
                             dfp = _pd.DataFrame(participants)
-                            dfp_display = dfp[[
-                                'room_name', 'room_level', 'show_rank_subdivided', 'follower_num', 'live_continuous_days', 'room_id', 'rank', 'point'
-                            ]].copy()
+                            # 表示カラムを安定的に取る（無い列があれば空列にする）
+                            cols = [
+                                'room_name', 'room_level', 'show_rank_subdivided',
+                                'follower_num', 'live_continuous_days', 'room_id', 'rank', 'point'
+                            ]
+                            for c in cols:
+                                if c not in dfp.columns:
+                                    dfp[c] = ""
+                            dfp_display = dfp[cols].copy()
                             dfp_display.rename(columns={
                                 'room_name': 'ルーム名',
                                 'room_level': 'ルームレベル',
@@ -476,21 +524,20 @@ def display_event_info(event):
                                 'point': 'ポイント'
                             }, inplace=True)
 
-                            # ルーム名をリンクにしてテーブル表示（HTMLテーブルを利用）
+                            # ルーム名をリンク化して HTML 表示
                             def _make_link(row):
                                 rid = row['ルームID']
-                                name = row['ルーム名']
+                                name = row['ルーム名'] or f"room_{rid}"
                                 return f'<a href="https://www.showroom-live.com/room/profile?room_id={rid}" target="_blank">{name}</a>'
                             dfp_display['ルーム名'] = dfp_display.apply(_make_link, axis=1)
 
-                            # 表示は expander 内にして領域を占有しすぎないようにする
                             with st.expander("参加者一覧（最大10件）", expanded=True):
                                 st.write(dfp_display.to_html(escape=False, index=False), unsafe_allow_html=True)
                         else:
                             st.info("参加者情報が取得できませんでした（イベント側データが空か、APIでの取得に失敗しました）。")
                     except Exception as e:
                         st.error(f"参加者情報の取得中にエラーが発生しました: {e}")
-        # --- ▲ 追加ここまで ▲ ---
+        # --- ▲ ここまで ▲ ---
 
 
     st.markdown("---")
