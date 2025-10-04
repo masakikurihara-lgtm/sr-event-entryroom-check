@@ -949,55 +949,70 @@ def main():
                     unsafe_allow_html=True
                 )
 
-                total_entries = get_total_entries(event['event_id'])
                 st.markdown(
                     f'<div class="event-info"><strong>参加ルーム数:</strong> {total_entries}</div>',
                     unsafe_allow_html=True
                 )
-                
-                
-                # ▼▼▼ ここから追加 ▼▼▼
-                # ステータスが1（開催中）または3（開催予定）の場合のみ、参加者情報を表示
-                status_val = event.get("status") or event.get("event_status") or event.get("public_status")
+
+                # --- ▼ ここから追加: 終了日時に基づいてボタン表示制御 ▼ ---
                 try:
-                    status_int = int(float(status_val)) if status_val is not None else None
+                    now_ts = int(datetime.now(JST).timestamp())
+                    ended_ts = int(float(event.get("ended_at", 0)))
+                    # ミリ秒表記対策
+                    if ended_ts > 20000000000:
+                        ended_ts //= 1000
                 except Exception:
-                    status_int = None
+                    ended_ts = 0
+                    now_ts = 0
 
-                if status_int in (1, 3):
-                    with st.expander("📊 参加者情報を表示（クリックで展開）", expanded=False):
-                        if st.button(f"このイベントの参加者を取得 ({event.get('event_name')})", key=f"btn_participants_{event.get('event_id')}"):
-                            with st.spinner("参加者情報を取得中..."):
-                                try:
-                                    participants = get_event_participants(event, limit=10)
-                                    if participants:
-                                        df = pd.DataFrame(participants)[[
-                                            "room_name", "room_level", "show_rank_subdivided",
-                                            "follower_num", "live_continuous_days", "room_id"
-                                        ]]
-                                        df.rename(columns={
-                                            "room_name": "ルーム名",
-                                            "room_level": "ルームレベル",
-                                            "show_rank_subdivided": "SHOWランク",
-                                            "follower_num": "フォロワー数",
-                                            "live_continuous_days": "連続配信日数",
-                                            "room_id": "ルームID"
-                                        }, inplace=True)
-                                        # ルーム名をリンク化
-                                        df["ルーム名"] = df.apply(
-                                            lambda x: f'<a href="https://www.showroom-live.com/room/profile?room_id={x["ルームID"]}" target="_blank">{x["ルーム名"]}</a>',
-                                            axis=1
-                                        )
-                                        # テーブル表示（HTMLリンクを有効化）
-                                        st.write(df.to_html(escape=False, index=False), unsafe_allow_html=True)
-                                    else:
-                                        st.info("参加者情報が取得できませんでした。")
-                                except Exception as e:
-                                    st.error(f"参加者情報の取得中にエラーが発生しました: {e}")
-                # ▲▲▲ ここまで追加 ▲▲▲
+                # 現在時刻より終了時刻が未来なら「開催中 or 開催予定」
+                if now_ts < ended_ts:
+                    btn_key = f"show_participants_{event.get('event_id')}"
+                    if st.button("参加者情報を表示", key=btn_key):
+                        with st.spinner("参加者情報を取得中...（上位30 → プロフィール補完）"):
+                            try:
+                                participants = get_event_participants(event, limit=10)
+                                if participants:
+                                    import pandas as _pd
+                                    dfp = _pd.DataFrame(participants)
+                                    cols = [
+                                        'room_name','room_level','show_rank_subdivided',
+                                        'follower_num','live_continuous_days','room_id','rank','point'
+                                    ]
+                                    for c in cols:
+                                        if c not in dfp.columns:
+                                            dfp[c] = ""
+                                    dfp_display = dfp[cols].copy()
+                                    dfp_display.rename(columns={
+                                        'room_name': 'ルーム名',
+                                        'room_level': 'ルームレベル',
+                                        'show_rank_subdivided': 'SHOWランク',
+                                        'follower_num': 'フォロワー数',
+                                        'live_continuous_days': '連続配信日数',
+                                        'room_id': 'ルームID',
+                                        'rank': '順位',
+                                        'point': 'ポイント'
+                                    }, inplace=True)
 
+                                    def _make_link(row):
+                                        rid = row['ルームID']
+                                        name = row['ルーム名'] or f"room_{rid}"
+                                        return f'<a href="https://www.showroom-live.com/room/profile?room_id={rid}" target="_blank">{name}</a>'
+                                    dfp_display['ルーム名'] = dfp_display.apply(_make_link, axis=1)
+
+                                    with st.expander("参加者一覧（最大10件）", expanded=True):
+                                        st.write(dfp_display.to_html(escape=False, index=False), unsafe_allow_html=True)
+                                else:
+                                    st.info("参加者情報が取得できませんでした。")
+                            except Exception as e:
+                                st.error(f"参加者情報の取得中にエラーが発生しました: {e}")
+                else:
+                    # 終了済みイベントは非表示 or 非活性メッセージを表示
+                    st.markdown('<div class="event-info"><em>（イベント終了済のため参加者情報は非表示）</em></div>', unsafe_allow_html=True)
+                # --- ▲ 追加ここまで ▲ ---
 
             st.markdown("---")
+
             
 
 if __name__ == "__main__":
