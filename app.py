@@ -338,11 +338,17 @@ def _show_rank_score(rank_str):
 
 @st.cache_data(ttl=120)
 def get_event_participants(event, limit=10):
+    """
+    イベント参加者の情報を取得（開催予定・開催中対応）
+    1. room_list?p=x で全参加者(room_id)を取得
+    2. profile?room_id= で各ルーム情報（SHOWランク・連続配信日数など）取得
+    3. 上位10ルームを (SHOWランク > ルームレベル > フォロワー数) の順で抽出
+    """
     event_id = event.get("event_id")
     if not event_id:
         return []
 
-    # --- ① room_list?p=x で全参加者を取得 ---
+    # --- ① room_list?p=x で全参加者を収集 ---
     rooms = []
     p = 1
     while True:
@@ -356,12 +362,10 @@ def get_event_participants(event, limit=10):
             if not page_rooms:
                 break
             rooms.extend(page_rooms)
-            # next_page が null/None の場合は終端
             if not data.get("next_page"):
                 break
             p += 1
-            # 安全弁
-            if p > 200:
+            if p > 200:  # 安全弁
                 break
             time.sleep(0.03)
         except Exception:
@@ -370,35 +374,31 @@ def get_event_participants(event, limit=10):
     if not rooms:
         return []
 
-    # --- room_id をキーにしたマップ（rank/point 等はここにある） ---
-    room_info_map = {}
-    for r in rooms:
-        rid = r.get("room_id") or r.get("roomId") or r.get("id")
-        if rid is None:
-            continue
-        rid = str(rid)
-        room_info_map[rid] = r
-
-    # --- ② 参加者候補を作成（room_list の値優先、足りない値は profile で補完） ---
+    # --- ② 各ルームのプロフィールを取得（SHOWランク / 連続配信日数） ---
     participants = []
-    for rid, r in room_info_map.items():
-        # room_list にある値を先に使う
-        room_name = r.get("room_name") or r.get("name") or ""
-        # room_list は 'level' または 'level' に相当するフィールドを持っていることが多い
-        room_level = r.get("level") or r.get("room_level") or 0
-        follower = r.get("follower_num") or r.get("follower_count") or 0
-        show_rank = r.get("show_rank_subdivided") or r.get("show_rank") or ""
+    for r in rooms:
+        rid = str(r.get("room_id") or "")
+        if not rid:
+            continue
 
-        # 足りない情報だけ profile で補完（API呼び出しは必要最小限に）
-        if show_rank == "" or room_level in (None, "") or follower in (None, ""):
-            profile = get_room_profile_api(rid)
-            if profile:
-                show_rank = show_rank or profile.get("show_rank_subdivided") or profile.get("show_rank") or ""
-                room_level = room_level or profile.get("room_level") or profile.get("level") or 0
-                follower = follower or profile.get("follower_num") or profile.get("follower_count") or 0
-                # room_name も profile で補える場合がある
-                if not room_name:
-                    room_name = profile.get("room_name") or profile.get("name") or room_name
+        # プロフィールAPIから取得
+        profile_url = f"https://www.showroom-live.com/api/room/profile?room_id={rid}"
+        try:
+            prof_res = requests.get(profile_url, headers=HEADERS, timeout=8)
+            if prof_res.status_code != 200:
+                continue
+            prof = prof_res.json()
+        except Exception:
+            continue
+
+        # それぞれの項目を抽出
+        room_name = prof.get("room_name") or r.get("room_name") or ""
+        room_level = prof.get("room_level") or r.get("level") or 0
+        show_rank = prof.get("show_rank_subdivided") or ""
+        follower = prof.get("follower_num") or r.get("follower_num") or 0
+        live_days = prof.get("live_continuous_days") or 0
+        point = r.get("point") or r.get("event_point") or 0
+        rank = r.get("rank") or r.get("position") or None
 
         # 型整形
         try:
@@ -409,6 +409,14 @@ def get_event_participants(event, limit=10):
             follower = int(follower)
         except Exception:
             follower = 0
+        try:
+            live_days = int(live_days)
+        except Exception:
+            live_days = 0
+        try:
+            point = int(float(point or 0))
+        except Exception:
+            point = 0
 
         participants.append({
             "room_id": rid,
@@ -416,17 +424,17 @@ def get_event_participants(event, limit=10):
             "room_level": room_level,
             "show_rank_subdivided": str(show_rank).strip().upper(),
             "follower_num": follower,
-            # 保存しておく（rank/point は room_info_map にある）
-            "rank": r.get("rank") or r.get("position"),
-            "point": r.get("point") or r.get("event_point") or r.get("total_point") or 0
+            "live_continuous_days": live_days,
+            "rank": rank,
+            "point": point
         })
-        # 必要なら sleep（rate limit 配慮） -- ただし profile 呼び出しは上でまとめているのでここは軽く
-        # time.sleep(0.01)
+
+        time.sleep(0.05)  # レートリミット対策
 
     if not participants:
         return []
 
-    # --- ③ SHOWランクを正規化してスコア化しソート ---
+    # --- ③ SHOWランクの順位マッピング（上位ほど高スコア） ---
     rank_order = [
         "SS-5","SS-4","SS-3","SS-2","SS-1",
         "S-5","S-4","S-3","S-2","S-1",
@@ -434,35 +442,25 @@ def get_event_participants(event, limit=10):
         "B-5","B-4","B-3","B-2","B-1",
         "C-10","C-9","C-8","C-7","C-6","C-5","C-4","C-3","C-2","C-1"
     ]
-    # 高いものに高スコアを与える
     rank_score = {r: len(rank_order) - i for i, r in enumerate(rank_order)}
 
-    def rank_to_score(rank_str):
-        if not rank_str:
-            return -1
-        s = str(rank_str).upper().strip()
-        # 余分な空白などを除去
-        s = s.replace(" ", "")
+    def to_score(rank_str):
+        s = str(rank_str).upper().strip().replace(" ", "")
         return rank_score.get(s, -1)
 
+    # --- ④ ソート（SHOWランク > ルームレベル > フォロワー数） ---
     participants_sorted = sorted(
         participants,
-        key=lambda x: (rank_to_score(x.get("show_rank_subdivided", "")),
-                       x.get("room_level", 0),
-                       x.get("follower_num", 0)),
+        key=lambda x: (
+            to_score(x.get("show_rank_subdivided")),
+            x.get("room_level", 0),
+            x.get("follower_num", 0)
+        ),
         reverse=True
     )
 
-    top10 = participants_sorted[:limit]
-
-    # --- ④ point を整数化（表示用）して返却 ---
-    for t in top10:
-        try:
-            t["point"] = int(float(t.get("point") or 0))
-        except Exception:
-            t["point"] = t.get("point") or 0
-
-    return top10
+    # 上位10件のみ返す
+    return participants_sorted[:limit]
 
 
 
