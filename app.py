@@ -429,12 +429,6 @@ def _fmt_int_for_display(v):
         # 数値変換できない場合は元をそのまま文字列化
         return str(v)
 
-# 期待する列名（日本語化後の列名を使う）
-numeric_display_cols = ['ルームレベル', 'フォロワー数', '連続配信日数', '順位', 'ポイント']
-for col in numeric_display_cols:
-    if col in dfp_display.columns:
-        dfp_display[col] = dfp_display[col].apply(_fmt_int_for_display)
-
 
 # --- UI表示関数 ---
 
