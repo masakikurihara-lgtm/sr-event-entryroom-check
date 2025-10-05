@@ -574,6 +574,8 @@ def display_event_info(event):
                                 elif col in ['ルームレベル', 'フォロワー数', 'まいにち配信', '順位']:
                                     dfp_display[col] = dfp_display[col].apply(lambda x: _fmt_int_for_display(x, use_comma=False))
 
+                            print(dfp_display.columns)
+
                             # ルーム名をリンクにしてテーブル表示（HTMLテーブルを利用）
                             def _make_link(row):
                                 rid = row['ルームID']
