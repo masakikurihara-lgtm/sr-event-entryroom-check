@@ -554,28 +554,28 @@ def display_event_info(event):
                             }, inplace=True)
 
                             # --- ▼ 数値フォーマット関数の修正版（整数・カンマ区切り表示） ▼ ---
-                            def _fmt_int_for_display(v):
+                            # --- ▼ 数値フォーマット関数（カンマ区切りを切替可能） ▼ ---
+                            def _fmt_int_for_display(v, use_comma=True):
                                 try:
-                                    # Noneや空文字は空表示
-                                    if v is None:
+                                    if v is None or (isinstance(v, str) and v.strip() == ""):
                                         return ""
-                                    if isinstance(v, str):
-                                        v = v.strip()
-                                        if v == "":
-                                            return ""
-                                    # 数値変換を試みる
                                     num = float(v)
-                                    # 小数点以下を切り捨てた整数＋カンマ区切り表示
-                                    return f"{int(num):,}"
+                                    # ✅ カンマ区切りあり or なしを切り替え
+                                    if use_comma:
+                                        return f"{int(num):,}"
+                                    else:
+                                        return f"{int(num)}"
                                 except Exception:
-                                    # 数値変換できない場合はそのまま文字列化
                                     return str(v)
 
-                            # ✅ 表示対象列に適用
-                            numeric_display_cols = ['ルームレベル', 'フォロワー数', 'まいにち配信', '順位', 'ポイント']
-                            for col in numeric_display_cols:
-                                if col in dfp_display.columns:
-                                    dfp_display[col] = dfp_display[col].apply(_fmt_int_for_display)
+                            # --- ▼ 列ごとにフォーマット適用 ▼ ---
+                            for col in dfp_display.columns:
+                                if col == 'ポイント':
+                                    # ✅ 「ポイント」だけカンマ区切りあり
+                                    dfp_display[col] = dfp_display[col].apply(lambda x: _fmt_int_for_display(x, use_comma=True))
+                                elif col in ['ルームレベル', 'フォロワー数', 'まいにち配信', '順位']:
+                                    # ✅ それ以外はカンマ区切りなし
+                                    dfp_display[col] = dfp_display[col].apply(lambda x: _fmt_int_for_display(x, use_comma=False))
                             # --- ▲ 修正版ここまで ▲ ---
 
                             # ルーム名をリンクにしてテーブル表示（HTMLテーブルを利用）
