@@ -1132,8 +1132,8 @@ def main():
 
                                 with st.expander("参加者一覧（最大10件）", expanded=True):
                                     st.markdown(html_table, unsafe_allow_html=True)
-                                else:
-                                    st.info("参加者情報が取得できませんでした。")
+                                #else:
+                                #    st.info("参加者情報が取得できませんでした。")
                             except Exception as e:
                                 st.error(f"参加者情報の取得中にエラーが発生しました: {e}")
                 else:
