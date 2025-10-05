@@ -553,7 +553,6 @@ def display_event_info(event):
                                 'point': 'ポイント'
                             }, inplace=True)
 
-                            # --- ▼ 数値フォーマット関数の修正版（整数・カンマ区切り表示） ▼ ---
                             # --- ▼ 数値フォーマット関数（カンマ区切りを切替可能） ▼ ---
                             def _fmt_int_for_display(v, use_comma=True):
                                 try:
@@ -561,22 +560,19 @@ def display_event_info(event):
                                         return ""
                                     num = float(v)
                                     # ✅ カンマ区切りあり or なしを切り替え
-                                    if use_comma:
-                                        return f"{int(num):,}"
-                                    else:
-                                        return f"{int(num)}"
+                                    return f"{int(num):,}" if use_comma else f"{int(num)}"
                                 except Exception:
                                     return str(v)
 
-                            # --- ▼ 列ごとにフォーマット適用 ▼ ---
+                            # --- ▼ 列ごとにフォーマット適用（確実に順序反映） ▼ ---
                             for col in dfp_display.columns:
+                                # ✅ カンマ区切り「あり」列
                                 if col == 'ポイント':
-                                    # ✅ 「ポイント」だけカンマ区切りあり
                                     dfp_display[col] = dfp_display[col].apply(lambda x: _fmt_int_for_display(x, use_comma=True))
+
+                                # ✅ カンマ区切り「なし」列
                                 elif col in ['ルームレベル', 'フォロワー数', 'まいにち配信', '順位']:
-                                    # ✅ それ以外はカンマ区切りなし
                                     dfp_display[col] = dfp_display[col].apply(lambda x: _fmt_int_for_display(x, use_comma=False))
-                            # --- ▲ 修正版ここまで ▲ ---
 
                             # ルーム名をリンクにしてテーブル表示（HTMLテーブルを利用）
                             def _make_link(row):
