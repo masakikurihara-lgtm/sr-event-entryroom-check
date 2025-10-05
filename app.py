@@ -574,8 +574,6 @@ def display_event_info(event):
                                 elif col in ['ルームレベル', 'フォロワー数', 'まいにち配信', '順位']:
                                     dfp_display[col] = dfp_display[col].apply(lambda x: _fmt_int_for_display(x, use_comma=False))
 
-                            st.write(dfp_display.head())
-
                             # ルーム名をリンクにしてテーブル表示（HTMLテーブルを利用）
                             def _make_link(row):
                                 rid = row['ルームID']
@@ -1108,21 +1106,24 @@ def main():
                                         return f'<a href="https://www.showroom-live.com/room/profile?room_id={rid}" target="_blank">{name}</a>'
                                     dfp_display['ルーム名'] = dfp_display.apply(_make_link, axis=1)
 
-                                    def _fmt_int_for_display(v):
+                                    # --- ▼ 数値フォーマット関数（ポイントのみカンマ区切り） ▼ ---
+                                    def _fmt_int_for_display(v, comma=True):
                                         try:
                                             if v is None or (isinstance(v, str) and v.strip() == ""):
                                                 return ""
                                             num = float(v)
-                                            if num.is_integer():
-                                                return f"{int(num):,}"
-                                            else:
-                                                return f"{num:,.0f}"
+                                            # カンマ付き or なしの切り替え
+                                            return f"{int(num):,}" if comma else f"{int(num)}"
                                         except Exception:
                                             return str(v)
 
-                                    for col in ['ルームレベル', 'フォロワー数', 'まいにち配信', '順位', 'ポイント']:
+                                    # --- ▼ 数値列を個別処理（列名を確認して確実に適用） ▼ ---
+                                    if 'ポイント' in dfp_display.columns:
+                                        dfp_display['ポイント'] = dfp_display['ポイント'].apply(lambda x: _fmt_int_for_display(x, comma=True))
+
+                                    for col in ['ルームレベル', 'フォロワー数', 'まいにち配信', '順位']:
                                         if col in dfp_display.columns:
-                                            dfp_display[col] = dfp_display[col].apply(_fmt_int_for_display)
+                                            dfp_display[col] = dfp_display[col].apply(lambda x: _fmt_int_for_display(x, comma=False))
 
                                     html_table = "<table style='width:100%; border-collapse:collapse;'>"
                                     html_table += (
