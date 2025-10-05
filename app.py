@@ -7,6 +7,8 @@ import pandas as pd
 import io
 import re
 import ftplib  # ✅ FTPアップロード機能用
+import concurrent.futures
+
 
 # 日本時間(JST)のタイムゾーンを設定
 JST = pytz.timezone('Asia/Tokyo')
@@ -336,41 +338,52 @@ def _show_rank_score(rank_str):
     return base * 100 - num
 
 
-import concurrent.futures
+
+HEADERS = {"User-Agent": "Mozilla/5.0"}
+
+# ✅ event_id 単位でキャッシュ（ページ単位も含む）
+@st.cache_data(ttl=300)
+def fetch_room_list_page(event_id: str, page: int):
+    """1ページ分の room_list を取得（キャッシュ対象）"""
+    url = f"https://www.showroom-live.com/api/event/room_list?event_id={event_id}&p={page}"
+    try:
+        res = requests.get(url, headers=HEADERS, timeout=10)
+        if res.status_code == 200:
+            return res.json().get("list", [])
+    except Exception:
+        pass
+    return []
+
 
 def get_event_participants(event, limit=10):
     event_id = event.get("event_id")
     if not event_id:
         return []
 
+    # --- ① room_list 全ページを疑似並列で取得 ---
+    max_pages = 30  # 安全上限（900件相当）
+    page_indices = list(range(1, max_pages + 1))
     all_entries = []
-    seen_room_ids = set()
-    page = 1
-    max_pages = 30  # 安全上限（30ページ＝約900ルーム）
+    seen_ids = set()
 
-    while page <= max_pages:
-        url = f"https://www.showroom-live.com/api/event/room_list?event_id={event_id}&p={page}"
-        try:
-            res = requests.get(url, headers=HEADERS, timeout=10)
-            if res.status_code != 200:
-                break
-            data = res.json()
-            page_entries = data.get("list", [])
-            if not page_entries:
-                break
-
-            # --- 同じデータが繰り返されている（無限ループ対策） ---
-            new_ids = {str(e.get("room_id")) for e in page_entries if e.get("room_id")}
-            if new_ids.issubset(seen_room_ids):
-                # すでに全件見たデータなら終了
-                break
-            seen_room_ids |= new_ids
-
-            all_entries.extend(page_entries)
-            page += 1
-            time.sleep(0.05)
-        except Exception:
-            break
+    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+        future_to_page = {
+            executor.submit(fetch_room_list_page, event_id, page): page
+            for page in page_indices
+        }
+        for future in concurrent.futures.as_completed(future_to_page):
+            try:
+                page_entries = future.result()
+                for entry in page_entries:
+                    rid = str(entry.get("room_id"))
+                    if rid and rid not in seen_ids:
+                        seen_ids.add(rid)
+                        all_entries.append(entry)
+                # ページにデータがなくなったら以降は無駄なのでbreak
+                if not page_entries:
+                    break
+            except Exception:
+                continue
 
     if not all_entries:
         return []
@@ -387,10 +400,10 @@ def get_event_participants(event, limit=10):
             return {}
         return {}
 
-    participants = []
     room_ids = [item.get("room_id") for item in all_entries if item.get("room_id")]
 
-    # 並列取得：最大10スレッドで同時にprofile呼び出し
+    participants = []
+    # 並列取得（I/Oバウンド処理を高速化）
     with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
         future_to_id = {executor.submit(fetch_profile, rid): rid for rid in room_ids}
         for future in concurrent.futures.as_completed(future_to_id):
@@ -426,14 +439,13 @@ def get_event_participants(event, limit=10):
 
     participants_sorted = sorted(participants, key=sort_key, reverse=True)
 
-    # --- ④ 参加者が存在しない場合は明示的に空で返す ---
     if not participants_sorted:
         return []
 
-    # 上位10件を抽出
-    top10 = participants_sorted[:limit]
+    # --- ④ 上位 limit 件のみ抽出 ---
+    top = participants_sorted[:limit]
 
-    # --- ⑤ rank/point補完（空 or None の場合は 0 に補正） ---
+    # --- ⑤ rank/point補完（存在しない場合は0補正） ---
     rank_map = {}
     for r in all_entries:
         rid = str(r.get("room_id"))
@@ -449,13 +461,13 @@ def get_event_participants(event, limit=10):
             "point": point_val
         }
 
-    for p in top10:
+    for p in top:
         rid = p["room_id"]
         rp = rank_map.get(rid, {})
         p["rank"] = rp.get("rank", "-")
         p["point"] = rp.get("point", 0)
 
-    return top10
+    return top
 
 
 
