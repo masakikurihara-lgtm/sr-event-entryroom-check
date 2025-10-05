@@ -1044,94 +1044,88 @@ def main():
                                 # --- ▼ 参加ルーム数 0 の場合 ---
                                 if not participants:
                                     st.warning("参加ルームがありません。")
-                                    return  # ← ここで早期終了（テーブルを描画しない）
+                                else:
+                                    # --- ▼ 正常に取得できた場合のみ DataFrame に整形して表示 ---
+                                    import pandas as _pd
 
-                                # --- ▼ 正常に取得できた場合のみ DataFrame に整形して表示 ---
-                                import pandas as _pd
+                                    rank_order = [
+                                        "SS-5","SS-4","SS-3","SS-2","SS-1",
+                                        "S-5","S-4","S-3","S-2","S-1",
+                                        "A-5","A-4","A-3","A-2","A-1",
+                                        "B-5","B-4","B-3","B-2","B-1",
+                                        "C-10","C-9","C-8","C-7","C-6","C-5","C-4","C-3","C-2","C-1"
+                                    ]
+                                    rank_score = {rank: i for i, rank in enumerate(rank_order[::-1])}
 
-                                # ✅ SHOWランク優先順のスコアマップ（非表示用）
-                                rank_order = [
-                                    "SS-5","SS-4","SS-3","SS-2","SS-1",
-                                    "S-5","S-4","S-3","S-2","S-1",
-                                    "A-5","A-4","A-3","A-2","A-1",
-                                    "B-5","B-4","B-3","B-2","B-1",
-                                    "C-10","C-9","C-8","C-7","C-6","C-5","C-4","C-3","C-2","C-1"
-                                ]
-                                rank_score = {rank: i for i, rank in enumerate(rank_order[::-1])}
+                                    dfp = _pd.DataFrame(participants)
 
-                                dfp = _pd.DataFrame(participants)
+                                    cols = [
+                                        'room_name', 'room_level', 'show_rank_subdivided',
+                                        'follower_num', 'live_continuous_days', 'room_id', 'rank', 'point'
+                                    ]
+                                    for c in cols:
+                                        if c not in dfp.columns:
+                                            dfp[c] = ""
 
-                                cols = [
-                                    'room_name', 'room_level', 'show_rank_subdivided',
-                                    'follower_num', 'live_continuous_days', 'room_id', 'rank', 'point'
-                                ]
-                                for c in cols:
-                                    if c not in dfp.columns:
-                                        dfp[c] = ""
+                                    dfp['_rank_score'] = dfp['show_rank_subdivided'].map(rank_score).fillna(-1)
+                                    dfp.sort_values(
+                                        by=['_rank_score', 'room_level', 'follower_num'],
+                                        ascending=[False, False, False],
+                                        inplace=True
+                                    )
 
-                                dfp['_rank_score'] = dfp['show_rank_subdivided'].map(rank_score).fillna(-1)
+                                    dfp_display = dfp[cols].copy()
+                                    dfp_display.rename(columns={
+                                        'room_name': 'ルーム名',
+                                        'room_level': 'ルームレベル',
+                                        'show_rank_subdivided': 'SHOWランク',
+                                        'follower_num': 'フォロワー数',
+                                        'live_continuous_days': '連続配信日数',
+                                        'room_id': 'ルームID',
+                                        'rank': '順位',
+                                        'point': 'ポイント'
+                                    }, inplace=True)
 
-                                dfp.sort_values(
-                                    by=['_rank_score', 'room_level', 'follower_num'],
-                                    ascending=[False, False, False],
-                                    inplace=True
-                                )
+                                    def _make_link(row):
+                                        rid = row['ルームID']
+                                        name = row['ルーム名'] or f"room_{rid}"
+                                        return f'<a href="https://www.showroom-live.com/room/profile?room_id={rid}" target="_blank">{name}</a>'
+                                    dfp_display['ルーム名'] = dfp_display.apply(_make_link, axis=1)
 
-                                dfp_display = dfp[cols].copy()
-                                dfp_display.rename(columns={
-                                    'room_name': 'ルーム名',
-                                    'room_level': 'ルームレベル',
-                                    'show_rank_subdivided': 'SHOWランク',
-                                    'follower_num': 'フォロワー数',
-                                    'live_continuous_days': '連続配信日数',
-                                    'room_id': 'ルームID',
-                                    'rank': '順位',
-                                    'point': 'ポイント'
-                                }, inplace=True)
+                                    def _fmt_int_for_display(v):
+                                        try:
+                                            if v is None or (isinstance(v, str) and v.strip() == ""):
+                                                return ""
+                                            num = float(v)
+                                            if num.is_integer():
+                                                return f"{int(num):,}"
+                                            else:
+                                                return f"{num:,.0f}"
+                                        except Exception:
+                                            return str(v)
 
-                                # リンク化
-                                def _make_link(row):
-                                    rid = row['ルームID']
-                                    name = row['ルーム名'] or f"room_{rid}"
-                                    return f'<a href="https://www.showroom-live.com/room/profile?room_id={rid}" target="_blank">{name}</a>'
-                                dfp_display['ルーム名'] = dfp_display.apply(_make_link, axis=1)
+                                    for col in ['ルームレベル', 'フォロワー数', '連続配信日数', '順位', 'ポイント']:
+                                        if col in dfp_display.columns:
+                                            dfp_display[col] = dfp_display[col].apply(_fmt_int_for_display)
 
-                                # 数値フォーマット
-                                def _fmt_int_for_display(v):
-                                    try:
-                                        if v is None or (isinstance(v, str) and v.strip() == ""):
-                                            return ""
-                                        num = float(v)
-                                        if num.is_integer():
-                                            return f"{int(num):,}"
-                                        else:
-                                            return f"{num:,.0f}"
-                                    except Exception:
-                                        return str(v)
+                                    html_table = "<table style='width:100%; border-collapse:collapse;'>"
+                                    html_table += (
+                                        "<thead style='background-color:#f3f4f6;'>"
+                                        "<tr>"
+                                    )
+                                    for col in dfp_display.columns:
+                                        html_table += f"<th style='padding:6px; border-bottom:1px solid #ccc; text-align:center;'>{col}</th>"
+                                    html_table += "</tr></thead><tbody>"
 
-                                for col in ['ルームレベル', 'フォロワー数', '連続配信日数', '順位', 'ポイント']:
-                                    if col in dfp_display.columns:
-                                        dfp_display[col] = dfp_display[col].apply(_fmt_int_for_display)
+                                    for _, row in dfp_display.iterrows():
+                                        html_table += "<tr>"
+                                        for val in row:
+                                            html_table += f"<td style='padding:6px; border-bottom:1px solid #eee; text-align:center;'>{val}</td>"
+                                        html_table += "</tr>"
+                                    html_table += "</tbody></table>"
 
-                                # ✅ テーブルHTML生成
-                                html_table = "<table style='width:100%; border-collapse:collapse;'>"
-                                html_table += (
-                                    "<thead style='background-color:#f3f4f6;'>"
-                                    "<tr>"
-                                )
-                                for col in dfp_display.columns:
-                                    html_table += f"<th style='padding:6px; border-bottom:1px solid #ccc; text-align:center;'>{col}</th>"
-                                html_table += "</tr></thead><tbody>"
-
-                                for _, row in dfp_display.iterrows():
-                                    html_table += "<tr>"
-                                    for val in row:
-                                        html_table += f"<td style='padding:6px; border-bottom:1px solid #eee; text-align:center;'>{val}</td>"
-                                    html_table += "</tr>"
-                                html_table += "</tbody></table>"
-
-                                with st.expander("参加者一覧（最大10件）", expanded=True):
-                                    st.markdown(html_table, unsafe_allow_html=True)
+                                    with st.expander("参加者一覧（最大10件）", expanded=True):
+                                        st.markdown(html_table, unsafe_allow_html=True)
                                 #else:
                                 #    st.info("参加者情報が取得できませんでした。")
                             except Exception as e:
