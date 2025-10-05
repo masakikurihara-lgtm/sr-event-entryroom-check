@@ -526,8 +526,8 @@ def display_event_info(event):
         # ※ バックアップ(BU)由来などで _fetched_status が無い場合はボタンは出しません（APIで取得できたもののみ対象）
         if show_participants_button:
             btn_key = f"show_participants_{event.get('event_id')}"
-            if st.button("参加者情報を表示", key=btn_key):
-                with st.spinner("参加者情報を取得中...（上位30→プロフィール補完を行います）"):
+            if st.button("参加ルーム情報を表示", key=btn_key):
+                with st.spinner("参加ルーム情報を取得中..."):
                     try:
                         participants = get_event_participants(event, limit=10)
                         if participants:
@@ -547,7 +547,7 @@ def display_event_info(event):
                                 'room_level': 'ルームレベル',
                                 'show_rank_subdivided': 'SHOWランク',
                                 'follower_num': 'フォロワー数',
-                                'live_continuous_days': '連続配信日数',
+                                'live_continuous_days': 'まいにち配信',
                                 'room_id': 'ルームID',
                                 'rank': '順位',
                                 'point': 'ポイント'
@@ -586,12 +586,12 @@ def display_event_info(event):
                             dfp_display['ルーム名'] = dfp_display.apply(_make_link, axis=1)
 
                             # コンパクトに expander 内で表示（領域を占有しない）
-                            with st.expander("参加者一覧（最大10件）", expanded=True):
+                            with st.expander("参加ルーム一覧（最大10ルーム）", expanded=True):
                                 st.write(dfp_display.to_html(escape=False, index=False), unsafe_allow_html=True)
                         else:
-                            st.info("参加者情報が取得できませんでした（イベント側データが空か、APIでの取得に失敗しました）。")
+                            st.info("参加ルーム情報が取得できませんでした（イベント側データが空か、データの取得に失敗しました）。")
                     except Exception as e:
-                        st.error(f"参加者情報の取得中にエラーが発生しました: {e}")
+                        st.error(f"参加ルーム情報の取得中にエラーが発生しました: {e}")
         # --- ▲ 判定ここまで ▲ ---
 
 
@@ -1048,8 +1048,8 @@ def main():
                 # 現在時刻より終了時刻が未来なら「開催中 or 開催予定」
                 if now_ts < ended_ts:
                     btn_key = f"show_participants_{event.get('event_id')}"
-                    if st.button("参加者情報を表示", key=btn_key):
-                        with st.spinner("参加者情報を取得中...（上位30 → プロフィール補完）"):
+                    if st.button("参加ルーム情報を表示", key=btn_key):
+                        with st.spinner("参加ルーム情報を取得中..."):
                             try:
                                 participants = get_event_participants(event, limit=10)
 
@@ -1092,7 +1092,7 @@ def main():
                                         'room_level': 'ルームレベル',
                                         'show_rank_subdivided': 'SHOWランク',
                                         'follower_num': 'フォロワー数',
-                                        'live_continuous_days': '連続配信日数',
+                                        'live_continuous_days': 'まいにち配信',
                                         'room_id': 'ルームID',
                                         'rank': '順位',
                                         'point': 'ポイント'
@@ -1136,15 +1136,15 @@ def main():
                                         html_table += "</tr>"
                                     html_table += "</tbody></table>"
 
-                                    with st.expander("参加者一覧（最大10件）", expanded=True):
+                                    with st.expander("参加ルーム一覧（最大10ルーム）", expanded=True):
                                         st.markdown(html_table, unsafe_allow_html=True)
                                 #else:
-                                #    st.info("参加者情報が取得できませんでした。")
+                                #    st.info("参加ルーム情報が取得できませんでした。")
                             except Exception as e:
-                                st.error(f"参加者情報の取得中にエラーが発生しました: {e}")
+                                st.error(f"参加ルーム情報の取得中にエラーが発生しました: {e}")
                 else:
                     # 終了済みイベントは非表示 or 非活性メッセージを表示
-                    #st.markdown('<div class="event-info"><em>（イベント終了済のため参加者情報は非表示）</em></div>', unsafe_allow_html=True)
+                    #st.markdown('<div class="event-info"><em>（イベント終了済のため参加ルーム情報は非表示）</em></div>', unsafe_allow_html=True)
                     st.markdown('', unsafe_allow_html=True)
                 # --- ▲ 追加ここまで ▲ ---
 
