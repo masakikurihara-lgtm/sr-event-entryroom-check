@@ -786,6 +786,10 @@ def main():
 
     # 辞書の値をリストに変換して、フィルタリング処理に進む
     all_events = list(unique_events_dict.values())
+    
+    # ✅ 特定イベントを完全除外（フィルタ候補にも残らないように）
+    all_events = [e for e in all_events if str(e.get("event_id")) != "12151"]
+    
     original_event_count = len(all_events)
 
     # --- 取得前の合計（生）件数とユニーク件数の差分を算出（追加） ---
@@ -960,9 +964,6 @@ def main():
                 else:
                     st.sidebar.warning("日時を入力してください。")
         
-        # --- 特定イベントを除外 ---
-        filtered_events = [e for e in filtered_events if str(e.get("event_id")) != "12151"]
-
         # フィルタリングされたイベントリスト
         filtered_events = all_events
         
