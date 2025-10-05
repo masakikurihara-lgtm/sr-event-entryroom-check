@@ -426,26 +426,34 @@ def get_event_participants(event, limit=10):
 
     participants_sorted = sorted(participants, key=sort_key, reverse=True)
 
+    # --- ④ 参加者が存在しない場合は明示的に空で返す ---
+    if not participants_sorted:
+        return []
+
     # 上位10件を抽出
     top10 = participants_sorted[:limit]
 
-    # --- ④ rank/point補完 ---
-    room_list_data = all_entries  # すでに全件room_listで取っている
+    # --- ⑤ rank/point補完（空 or None の場合は 0 に補正） ---
     rank_map = {}
-    for r in room_list_data:
+    for r in all_entries:
         rid = str(r.get("room_id"))
         if not rid:
             continue
+        point_val = r.get("point") or r.get("event_point") or r.get("total_point") or 0
+        try:
+            point_val = int(point_val)
+        except Exception:
+            point_val = 0
         rank_map[rid] = {
-            "rank": r.get("rank") or r.get("position"),
-            "point": r.get("point") or r.get("event_point") or r.get("total_point")
+            "rank": r.get("rank") or r.get("position") or "-",
+            "point": point_val
         }
 
     for p in top10:
         rid = p["room_id"]
         rp = rank_map.get(rid, {})
-        p["rank"] = rp.get("rank")
-        p["point"] = rp.get("point")
+        p["rank"] = rp.get("rank", "-")
+        p["point"] = rp.get("point", 0)
 
     return top10
 
