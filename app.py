@@ -960,6 +960,9 @@ def main():
                 else:
                     st.sidebar.warning("日時を入力してください。")
         
+        # --- 特定イベントを除外 ---
+        filtered_events = [e for e in filtered_events if str(e.get("event_id")) != "12151"]
+
         # フィルタリングされたイベントリスト
         filtered_events = all_events
         
@@ -986,9 +989,6 @@ def main():
                 e for e in filtered_events
                 if get_duration_category(e['started_at'], e['ended_at']) in selected_durations
             ]
-
-        # --- 特定イベントを除外 ---
-        filtered_events = [e for e in filtered_events if str(e.get("event_id")) != "12151"]
         
         if selected_targets:
             target_map = {"全ライバー": False, "対象者限定": True}
