@@ -801,7 +801,7 @@ def main():
         # 開始日フィルタの選択肢を生成
         start_dates = sorted(list(set([
             datetime.fromtimestamp(e['started_at'], JST).date() for e in all_events if 'started_at' in e
-        ])), reverse=True)
+        ])), reverse=False)
         
         # 日付と曜日の辞書を作成
         start_date_options = {
@@ -817,7 +817,7 @@ def main():
         # ▼▼ 終了日でフィルタの選択肢を生成（ここから追加/修正） ▼▼
         end_dates = sorted(list(set([
             datetime.fromtimestamp(e['ended_at'], JST).date() for e in all_events if 'ended_at' in e
-        ])), reverse=True)
+        ])), reverse=False)
         
         # 日付と曜日の辞書を作成
         end_date_options = {
