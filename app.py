@@ -1043,7 +1043,7 @@ def main():
 
                                 # --- ▼ 参加ルーム数 0 の場合 ---
                                 if not participants:
-                                    st.warning("参加ルームがありません。")
+                                    st.info("参加ルームがありません。")
                                 else:
                                     # --- ▼ 正常に取得できた場合のみ DataFrame に整形して表示 ---
                                     import pandas as _pd
