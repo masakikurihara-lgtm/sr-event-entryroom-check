@@ -1040,7 +1040,8 @@ def main():
                         with st.spinner("参加者情報を取得中...（上位30 → プロフィール補完）"):
                             try:
                                 participants = get_event_participants(event, limit=10)
-                                if participants:
+                                if not participants:
+                                    st.warning("参加ルームがありません。")
                                     import pandas as _pd
 
                                     # ✅ SHOWランク優先順のスコアマップ（非表示用）
