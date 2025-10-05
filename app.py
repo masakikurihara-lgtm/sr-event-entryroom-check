@@ -346,7 +346,7 @@ def get_event_participants(event, limit=10):
     all_entries = []
     seen_room_ids = set()
     page = 1
-    max_pages = 50  # 安全上限（40ページ＝約1500ルーム）
+    max_pages = 30  # 安全上限（30ページ＝約900ルーム）
 
     while page <= max_pages:
         url = f"https://www.showroom-live.com/api/event/room_list?event_id={event_id}&p={page}"
