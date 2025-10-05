@@ -801,39 +801,41 @@ def main():
         st.info("該当するイベントはありませんでした。")
         st.stop()
     else:
-        # --- フィルタリングオプション ---
-        # 開始日フィルタの選択肢を生成
+        # --- reverse制御フラグを定義 ---
+        # 「終了」または「終了(BU)」がチェックされている場合は降順（reverse=True）
+        # それ以外（＝開催中／開催予定のみ）の場合は昇順（reverse=False）
+        reverse_sort = (use_finished or use_past_bu)
+
+        # --- 開始日フィルタの選択肢を生成 ---
         start_dates = sorted(list(set([
             datetime.fromtimestamp(e['started_at'], JST).date() for e in all_events if 'started_at' in e
-        ])), reverse=False)
-        
+        ])), reverse=reverse_sort)
+
         # 日付と曜日の辞書を作成
         start_date_options = {
             d.strftime('%Y/%m/%d') + f"({['月', '火', '水', '木', '金', '土', '日'][d.weekday()]})": d
             for d in start_dates
         }
-        
+
         selected_start_dates = st.sidebar.multiselect(
             "開始日でフィルタ",
             options=list(start_date_options.keys())
         )
-        
-        # ▼▼ 終了日でフィルタの選択肢を生成（ここから追加/修正） ▼▼
+
+        # --- 終了日フィルタの選択肢を生成 ---
         end_dates = sorted(list(set([
             datetime.fromtimestamp(e['ended_at'], JST).date() for e in all_events if 'ended_at' in e
-        ])), reverse=False)
-        
-        # 日付と曜日の辞書を作成
+        ])), reverse=reverse_sort)
+
         end_date_options = {
             d.strftime('%Y/%m/%d') + f"({['月', '火', '水', '木', '金', '土', '日'][d.weekday()]})": d
             for d in end_dates
         }
-        
+
         selected_end_dates = st.sidebar.multiselect(
             "終了日でフィルタ",
             options=list(end_date_options.keys())
         )
-        # ▲▲ 終了日でフィルタの選択肢を生成（ここまで追加/修正） ▲▲
 
         # 期間でフィルタ
         duration_options = ["3日以内", "1週間", "10日", "2週間", "その他"]
