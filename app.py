@@ -343,10 +343,12 @@ def get_event_participants(event, limit=10):
     if not event_id:
         return []
 
-    # --- ① room_list?p= の全ページ探索（全room_id収集） ---
     all_entries = []
+    seen_room_ids = set()
     page = 1
-    while True:
+    max_pages = 50  # 安全上限（40ページ＝約1500ルーム）
+
+    while page <= max_pages:
         url = f"https://www.showroom-live.com/api/event/room_list?event_id={event_id}&p={page}"
         try:
             res = requests.get(url, headers=HEADERS, timeout=10)
@@ -356,6 +358,14 @@ def get_event_participants(event, limit=10):
             page_entries = data.get("list", [])
             if not page_entries:
                 break
+
+            # --- 同じデータが繰り返されている（無限ループ対策） ---
+            new_ids = {str(e.get("room_id")) for e in page_entries if e.get("room_id")}
+            if new_ids.issubset(seen_room_ids):
+                # すでに全件見たデータなら終了
+                break
+            seen_room_ids |= new_ids
+
             all_entries.extend(page_entries)
             page += 1
             time.sleep(0.05)
